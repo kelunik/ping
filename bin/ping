@@ -1,0 +1,44 @@
+#!/usr/bin/env php
+<?php
+
+use Amp\Pause;
+use Kelunik\Ping\Ping;
+use Kelunik\Ping\PingException;
+use Kelunik\Ping\Response;
+
+require __DIR__ . "/../vendor/autoload.php";
+
+$run = true;
+
+Amp\onSignal(SIGINT, function() use (&$run) {
+    if (!$run) {
+        exit(0);
+    }
+
+    $run = false;
+}, [
+    "keep_alive" => false,
+]);
+
+Amp\run(function() use ($argv, &$run) {
+    try {
+        $sequenceNumber = 1;
+
+        while ($run) {
+            /** @var Response $response */
+            $response = (yield (new Ping)->ping($argv[1], $sequenceNumber++));
+
+            print "Received response from " . $response->getDestinationIp() . " in " . round($response->getTime() * 1000, 2) . " [ms] (" . $response->getSequenceNumber() . ")";
+            print PHP_EOL;
+
+            yield new Pause(1000);
+        }
+    } catch (PingException $e) {
+        print " Error: " . $e->getMessage() . PHP_EOL;
+        print "  Code: " . $e->getCode() . PHP_EOL;
+        print PHP_EOL;
+        exit(1);
+    }
+
+    // TODO: Change Amp\Pause to keep_alive => false
+});
