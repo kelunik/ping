@@ -2,6 +2,7 @@
 
 namespace Kelunik\Ping;
 
+use Amp\CoroutineResult;
 use Amp\Deferred;
 use Amp\Dns\Record;
 use Amp\Failure;
@@ -20,7 +21,8 @@ class Ping {
 
             if (!$socket) {
                 $error = socket_last_error();
-                return new Failure(new PingException("Unable to create socket ({$error}): " . socket_strerror($error)));
+                yield new CoroutineResult(new Failure(new PingException("Unable to create socket ({$error}): " . socket_strerror($error))));
+                return;
             }
 
             if ($inAddr = @\inet_pton($host)) {
@@ -100,10 +102,11 @@ class Ping {
                 $resolved = true;
             });
 
-            return $promise;
+            yield new CoroutineResult($promise);
+            return;
         };
 
-        return \Amp\resolve($fn());
+        yield new CoroutineResult(\Amp\resolve($fn()));
     }
 
     private function buildPingRequest($sequenceNumber) {
