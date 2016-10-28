@@ -9,9 +9,10 @@ php:
 
 install:
   - composer install
+  - composer show
 
 before_script:
-  - which php
+  - sudo setcap cap_net_raw+ep $(realpath $(which php))
 
 script:
-  - sudo $(php -r 'if (PHP_MAJOR_VERSION >= 7) echo "phpdbg -qrr"; else echo "php";') vendor/bin/phpunit --coverage-text --coverage-clover build/logs/clover.xml
+  - vendor/bin/phpunit --coverage-text
