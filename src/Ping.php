@@ -106,7 +106,7 @@ class Ping {
             return;
         };
 
-        yield new CoroutineResult(\Amp\resolve($fn()));
+        return \Amp\resolve($fn());
     }
 
     private function buildPingRequest($sequenceNumber) {
