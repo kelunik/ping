@@ -16,3 +16,20 @@ concurrency framework.
 ```bash
 $ composer require kelunik/ping
 ```
+
+**Permissions**
+
+Your script either needs to be run as root or you have to add the raw socket capability to your PHP interpreter to allow
+raw network sockets.
+
+```bash
+sudo bin/ping github.com
+```
+
+Some Unix based systems allow to set capabilities on interpreted files (`#!`), but most don't, so they require the
+permission on the executable. You might want to use a small binary that starts PHP to allow that capability only where
+needed. 
+
+```bash
+sudo setcap cap_net_raw+ep /path/to/php
+```
