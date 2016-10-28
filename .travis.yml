@@ -11,5 +11,8 @@ install:
   - composer install
   - composer show
 
+# Use /home/travis/.phpenv/shims/php as binary when using sudo,
+# otherwise we end up with HHVM.
+
 script:
-  - sudo vendor/bin/phpunit --coverage-text
+  - sudo /home/travis/.phpenv/shims/php vendor/bin/phpunit --coverage-text
