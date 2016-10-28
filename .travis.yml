@@ -11,8 +11,5 @@ install:
   - composer install
   - composer show
 
-before_script:
-  - sudo setcap cap_net_raw+ep $(realpath $(which php))
-
 script:
-  - vendor/bin/phpunit --coverage-text
+  - sudo vendor/bin/phpunit --coverage-text
