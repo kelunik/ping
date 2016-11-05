@@ -9,6 +9,12 @@ use Amp\Failure;
 use Amp\Pause;
 
 class Ping {
+    const TYPE_4_PING_REQUEST = 8;
+    const TYPE_4_PING_REPLY = 0;
+
+    const TYPE_6_PING_REQUEST = 128;
+    const TYPE_6_PING_REPLY = 129;
+
     public function ping($host, $sequenceNumber = 1) {
         $fn = function () use ($host, $sequenceNumber) {
             $deferred = new Deferred;
@@ -16,14 +22,6 @@ class Ping {
             $readBuffer = "";
 
             $resolved = false;
-
-            $socket = socket_create(AF_INET, SOCK_RAW, getprotobyname("icmp"));
-
-            if (!$socket) {
-                $error = socket_last_error();
-                yield new CoroutineResult(new Failure(new PingException("Unable to create socket ({$error}): " . socket_strerror($error))));
-                return;
-            }
 
             if ($inAddr = @\inet_pton($host)) {
                 $isIpv6 = isset($inAddr[15]);
@@ -33,30 +31,53 @@ class Ping {
                 $isIpv6 = $mode === Record::AAAA;
             }
 
-            $package = $this->buildPingRequest($sequenceNumber);
+            $socket = socket_create($isIpv6 ? AF_INET6 : AF_INET, SOCK_RAW, getprotobyname($isIpv6 ? "ipv6-icmp" : "icmp"));
 
-            socket_connect($socket, $isIpv6 ? "[{$host}]" : $host, null);
+            if (!$socket) {
+                $error = socket_last_error();
+                yield new CoroutineResult(new Failure(new PingException("Unable to create socket ({$error}): " . socket_strerror($error))));
+                return;
+            }
+
+            socket_connect($socket, $host, null);
             socket_set_nonblock($socket);
+            socket_getsockname($socket, $sourceIp);
+
+            $sequenceNumber = 1;
+            $data = random_bytes(48);
+
+            $package = $isIpv6 ? $this->buildPing6Request($sequenceNumber, $data, $sourceIp, $host) : $this->buildPing4Request($sequenceNumber, $data);
+
             socket_send($socket, $package, strlen($package), 0);
 
-            $watcher = \Amp\repeat(function () use ($socket, $start, $deferred, &$readBuffer) {
+            $watcher = \Amp\repeat(function () use ($isIpv6, $socket, $start, $deferred, $sourceIp, $host, $data, &$readBuffer) {
                 $read = socket_read($socket, 255);
 
                 if ($read != "") {
-                    list($source) = array_values(unpack("N*", substr($read, 12, 4)));
-                    list($dest) = array_values(unpack("N*", substr($read, 16, 4)));
+                    if ($isIpv6) {
+                        $source = $host;
+                        $dest = $sourceIp;
+                        $offset = 0;
+                    } else {
+                        $source = inet_ntop(substr($read, 12, 4));
+                        $dest = inet_ntop(substr($read, 16, 4));
+                        $offset = 20;
+                    }
 
-                    $type = ord($read[20]);
-                    $code = ord($read[21]);
+                    $type = ord($read[$offset + 0]);
+                    $code = ord($read[$offset + 1]);
+                    $checksum = substr($read, $offset + 2, 2);
+                    $identifier = substr($read, $offset + 4, 2);
+                    $sequence = current(unpack("n", substr($read, $offset + 6, 2)));
 
-                    $checksum = substr($read, 22, 2);
+                    $receivedData = substr($read, $offset + 8);
 
-                    list($identifier) = array_values(unpack("n*", substr($read, 24, 2)));
-                    list($sequence) = array_values(unpack("n*", substr($read, 26, 2)));
+                    $package = chr($type) . chr($code) . "\0\0" . $identifier . pack("n", $sequence) . $receivedData;
 
-                    $data = substr($read, 28);
+                    if ($isIpv6) {
+                        $package = inet_pton($source) . inet_pton($dest) . pack("n", strlen($receivedData) + 8) . "\0\0\0" . chr(58) . $package;
+                    }
 
-                    $package = chr($type) . chr($code) . "\0\0" . pack("n", $identifier) . pack("n", $sequence) . $data;
                     $calculatedChecksum = $this->calculateChecksum($package);
 
                     if ($checksum !== $calculatedChecksum) {
@@ -64,12 +85,16 @@ class Ping {
                         return;
                     }
 
-                    if ($type === 8) {
+                    if ($data !== $receivedData) {
+                        $deferred->fail(new PingException("Didn't receive sent data.\nSent: '" . bin2hex($data) . "'\nReceived: '" . bin2hex($receivedData) . "'"));
+                    }
+
+                    if ((!$isIpv6 && $type === self::TYPE_4_PING_REQUEST) || ($isIpv6 && $type === self::TYPE_6_PING_REQUEST)) {
                         return;
-                    } else if ($type === 0) {
+                    } else if ((!$isIpv6 && $type === self::TYPE_4_PING_REPLY) || ($isIpv6 && $type === self::TYPE_6_PING_REPLY)) {
                         $response = new Response(
-                            long2ip($source),
-                            long2ip($dest),
+                            $sourceIp,
+                            $host,
                             $sequence,
                             microtime(1) - $start
                         );
@@ -109,14 +134,12 @@ class Ping {
         return \Amp\resolve($fn());
     }
 
-    private function buildPingRequest($sequenceNumber) {
-        $type = "\x08";
+    private function buildPing4Request($sequenceNumber, $data) {
+        $type = chr(self::TYPE_4_PING_REQUEST);
         $code = "\0";
         $checksum = "\0\0";
         $identifier = "\0\0";
         $sequence = pack("n", $sequenceNumber);
-
-        $data = hex2bin("39ec030000000000101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f3031323334353637");
 
         $package = $type . $code . $checksum . $identifier . $sequence . $data;
         $checksum = $this->calculateChecksum($package);
@@ -124,6 +147,21 @@ class Ping {
 
         return $package;
     }
+
+    private function buildPing6Request($sequenceNumber, $data, $sourceIp, $destIp) {
+        $type = chr(self::TYPE_6_PING_REQUEST);
+        $code = "\0";
+        $checksum = "\0\0";
+        $identifier = "\0\0";
+        $sequence = pack("n", $sequenceNumber);
+
+        $package = $type . $code . $checksum . $identifier . $sequence . $data;
+        $checksum = $this->calculateChecksum(inet_pton($sourceIp) . inet_pton($destIp) . pack("n", strlen($data) + 8) . "\0\0\0" . chr(58) . $package);
+        $package = $type . $code . $checksum . $identifier . $sequence . $data;
+
+        return $package;
+    }
+
 
     private function calculateChecksum($package) {
         if (strlen($package) % 2) {

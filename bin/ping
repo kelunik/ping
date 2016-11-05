@@ -28,7 +28,7 @@ Amp\run(function() use ($argv, &$run) {
             /** @var Response $response */
             $response = (yield (new Ping)->ping($argv[1], $sequenceNumber++));
 
-            print "Received response from " . $response->getDestinationIp() . " in " . round($response->getTime() * 1000, 2) . " [ms] (" . $response->getSequenceNumber() . ")";
+            print $response->getSourceIp() . " (local) → " . $response->getDestinationIp() . " (remote) in " . round($response->getTime() * 1000, 2) . " [ms] (" . $response->getSequenceNumber() . ")";
             print PHP_EOL;
 
             yield new Pause(1000);
