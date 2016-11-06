@@ -12,7 +12,8 @@
     },
     "require": {
         "amphp/amp": "^1",
-        "amphp/socket": "^0.9.4"
+        "amphp/socket": "^0.9.4",
+        "paragonie/random_compat": "^1|^2"
     },
     "require-dev": {
         "phpunit/phpunit": "^4|^5"
