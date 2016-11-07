@@ -39,9 +39,10 @@ class IntegrationTest extends \PHPUnit_Framework_TestCase {
     public function providePingNames() {
         return [
             ["google.com"],
-            ["github.com"],
+            ["ipv6.google.com"],
             ["localhost"],
             ["127.0.0.1"],
+            ["::1"],
         ];
     }
 }
